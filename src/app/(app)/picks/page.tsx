@@ -2,84 +2,72 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useWarehouse } from '@/contexts/warehouse-context'
-import { useAuth } from '@/contexts/auth-context'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { ShoppingCart, Search, Package } from 'lucide-react'
-import { formatDate } from '@/lib/utils'
+import { Scan, Search, ArrowDownToLine, ShoppingCart } from 'lucide-react'
+import { formatDateTime } from '@/lib/utils'
 import Link from 'next/link'
-import { toast } from 'sonner'
 
 export const dynamic = 'force-dynamic'
 
-const STATUS_COLORS: Record<string, string> = {
-  CONFIRMED: 'bg-blue-100 text-blue-700',
-  PICKING: 'bg-yellow-100 text-yellow-700',
+const TYPE_COLORS: Record<string, string> = {
+  PUTAWAY: 'bg-blue-100 text-blue-700',
+  PICK: 'bg-yellow-100 text-yellow-700',
+  TRANSFER: 'bg-purple-100 text-purple-700',
+  REPLENISHMENT: 'bg-orange-100 text-orange-700',
 }
 
-const PRIORITY_COLORS: Record<string, string> = {
-  LOW: 'bg-slate-100 text-slate-600',
-  NORMAL: 'bg-blue-50 text-blue-600',
-  HIGH: 'bg-orange-100 text-orange-700',
-  URGENT: 'bg-red-100 text-red-700',
+const SOURCE_COLORS: Record<string, string> = {
+  GR: 'bg-green-100 text-green-700',
+  SO: 'bg-orange-100 text-orange-700',
 }
 
 export default function PicksPage() {
   const { warehouse, site } = useWarehouse()
-  const { user, isSuperUser, hasPermission } = useAuth()
-  const [orders, setOrders] = useState<any[]>([])
+  const [transports, setTransports] = useState<any[]>([])
   const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [typeFilter, setTypeFilter] = useState('ALL')
   const supabase = createClient()
 
-  const canEdit = isSuperUser || hasPermission('sales-orders', 'edit')
-
-  const fetchOrders = async () => {
+  const fetchTransports = async () => {
     if (!warehouse || !site) return
     let q = supabase
-      .from('sales_order_header')
-      .select('*, customers(name, customer_code)')
+      .from('transport_orders')
+      .select('*, wms_users!transport_orders_created_by_fkey(full_name, username)')
       .eq('warehouse', warehouse)
       .eq('site', site)
-      .in('status', ['CONFIRMED', 'PICKING'])
-      .order('priority', { ascending: false })
-      .order('so_date')
-    if (search) q = q.ilike('so_number', `%${search}%`)
+      .in('status', ['OPEN', 'IN_PROGRESS'])
+      .order('created_at', { ascending: false })
+    if (search) q = q.ilike('to_number', `%${search}%`)
+    if (typeFilter !== 'ALL') q = q.eq('to_type', typeFilter)
     const { data } = await q
-    setOrders(data || [])
+    setTransports(data || [])
   }
 
-  useEffect(() => { fetchOrders() }, [warehouse, site, search])
+  useEffect(() => { fetchTransports() }, [warehouse, site, search, typeFilter])
 
-  const startPicking = async (soId: string, soNumber: string) => {
-    setLoading(true)
-    const { error } = await supabase
-      .from('sales_order_header')
-      .update({ status: 'PICKING', updated_by: user?.id, updated_at: new Date().toISOString() })
-      .eq('id', soId)
-    if (error) { toast.error(error.message) } else { toast.success(`${soNumber} - Picking started`) }
-    setLoading(false)
-    fetchOrders()
-  }
+  const putawayCount = transports.filter(t => t.to_type === 'PUTAWAY').length
+  const pickCount = transports.filter(t => t.to_type === 'PICK').length
+  const grCount = transports.filter(t => t.source_type === 'GR').length
+  const soCount = transports.filter(t => t.source_type === 'SO').length
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <ShoppingCart className="h-6 w-6 text-yellow-600" /> Open Picks
+          <Scan className="h-6 w-6 text-yellow-600" /> Open Picks
         </h1>
-        <p className="text-sm text-slate-500">Sales orders awaiting picking — sorted by priority</p>
+        <p className="text-sm text-slate-500">All open transport orders awaiting confirmation</p>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Urgent', count: orders.filter(o => o.priority === 'URGENT').length, color: 'bg-red-100 text-red-700 border-red-200' },
-          { label: 'High', count: orders.filter(o => o.priority === 'HIGH').length, color: 'bg-orange-100 text-orange-700 border-orange-200' },
-          { label: 'Normal', count: orders.filter(o => o.priority === 'NORMAL').length, color: 'bg-blue-100 text-blue-700 border-blue-200' },
-          { label: 'In Picking', count: orders.filter(o => o.status === 'PICKING').length, color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
+          { label: 'GR Putaway', count: putawayCount, color: 'bg-blue-100 text-blue-700 border-blue-200', icon: ArrowDownToLine },
+          { label: 'SO Picks', count: pickCount, color: 'bg-yellow-100 text-yellow-700 border-yellow-200', icon: ShoppingCart },
+          { label: 'From GR', count: grCount, color: 'bg-green-100 text-green-700 border-green-200', icon: ArrowDownToLine },
+          { label: 'From SO', count: soCount, color: 'bg-orange-100 text-orange-700 border-orange-200', icon: ShoppingCart },
         ].map(stat => (
           <div key={stat.label} className={`border rounded-lg p-3 text-center ${stat.color}`}>
             <div className="text-2xl font-bold">{stat.count}</div>
@@ -90,9 +78,21 @@ export default function PicksPage() {
 
       <Card>
         <CardHeader className="pb-3">
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-            <Input placeholder="Search SO number..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
+          <div className="flex flex-wrap gap-3">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <Input placeholder="Search transport number..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+            <select
+              className="border rounded-md px-3 py-2 text-sm"
+              value={typeFilter}
+              onChange={e => setTypeFilter(e.target.value)}
+            >
+              <option value="ALL">All Types</option>
+              <option value="PUTAWAY">Putaway (GR)</option>
+              <option value="PICK">Pick (SO)</option>
+              <option value="TRANSFER">Transfer</option>
+            </select>
           </div>
         </CardHeader>
         <CardContent>
@@ -100,50 +100,49 @@ export default function PicksPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>SO Number</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Lines</TableHead>
-                  <TableHead>Priority</TableHead>
+                  <TableHead>Transport No.</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Reference</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="w-36">Actions</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead className="w-28">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {orders.length === 0 && (
+                {transports.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-10 text-slate-500">
-                      <Package className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-                      No open picks — all caught up!
+                      <Scan className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+                      No open transport orders — all clear!
                     </TableCell>
                   </TableRow>
                 )}
-                {orders.map(so => (
-                  <TableRow key={so.id} className={so.priority === 'URGENT' ? 'bg-red-50' : so.priority === 'HIGH' ? 'bg-orange-50' : ''}>
-                    <TableCell className="font-mono font-medium">{so.so_number}</TableCell>
+                {transports.map(t => (
+                  <TableRow key={t.id}>
+                    <TableCell className="font-mono font-bold text-base tracking-wider">{t.to_number}</TableCell>
                     <TableCell>
-                      <div className="text-sm">{so.customers?.name || '-'}</div>
-                      <div className="text-xs text-slate-500">{so.customers?.customer_code}</div>
-                    </TableCell>
-                    <TableCell className="text-sm">{formatDate(so.so_date)}</TableCell>
-                    <TableCell>{so.total_lines}</TableCell>
-                    <TableCell>
-                      <Badge className={`text-xs ${PRIORITY_COLORS[so.priority] || ''}`}>{so.priority}</Badge>
+                      <Badge className={`text-xs ${TYPE_COLORS[t.to_type] || 'bg-gray-100 text-gray-700'}`}>{t.to_type}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge className={`text-xs ${STATUS_COLORS[so.status] || ''}`}>{so.status}</Badge>
+                      {t.source_type ? (
+                        <Badge className={`text-xs ${SOURCE_COLORS[t.source_type] || 'bg-gray-100 text-gray-700'}`}>
+                          {t.source_type === 'GR' ? <><ArrowDownToLine className="h-2.5 w-2.5 inline mr-1" />GR</> : <><ShoppingCart className="h-2.5 w-2.5 inline mr-1" />SO</>}
+                        </Badge>
+                      ) : <span className="text-slate-400 text-xs">Manual</span>}
                     </TableCell>
+                    <TableCell className="text-sm font-mono">{t.source_number || t.reference_number || '-'}</TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
-                        {canEdit && so.status === 'CONFIRMED' && (
-                          <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => startPicking(so.id, so.so_number)} disabled={loading}>
-                            Start Pick
-                          </Button>
-                        )}
-                        <Link href={`/sales-orders/${so.id}`} className="inline-flex items-center justify-center h-7 px-2 text-xs rounded-lg border border-border hover:bg-muted transition-all">
-                          Open
-                        </Link>
-                      </div>
+                      <Badge className="text-xs bg-blue-100 text-blue-700">{t.status}</Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-500">{formatDateTime(t.created_at)}</TableCell>
+                    <TableCell>
+                      <Link
+                        href={`/transports?tn=${t.to_number}`}
+                        className="inline-flex items-center justify-center h-7 px-3 text-xs rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-all gap-1"
+                      >
+                        Confirm
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ))}

@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Input } from '@/components/ui/input'
 import { ArrowLeft, CheckCircle, PackageCheck } from 'lucide-react'
 import { formatDate, formatDateTime } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -27,8 +26,8 @@ export default function GRDetailPage() {
   const supabase = createClient()
   const [gr, setGr] = useState<any>(null)
   const [lines, setLines] = useState<any[]>([])
+  const [transport, setTransport] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [receivedQtys, setReceivedQtys] = useState<Record<string, number>>({})
 
   const canEdit = isSuperUser || hasPermission('goods-receipt', 'edit')
 
@@ -39,63 +38,81 @@ export default function GRDetailPage() {
     ])
     setGr(header)
     setLines(grLines || [])
-    const qtys: Record<string, number> = {}
-    grLines?.forEach(l => { qtys[l.id] = l.received_qty || l.expected_qty })
-    setReceivedQtys(qtys)
+
+    // Load linked transport order if any
+    if (header) {
+      const { data: to } = await supabase
+        .from('transport_orders')
+        .select('id, to_number, status')
+        .eq('source_type', 'GR')
+        .eq('source_id', id)
+        .maybeSingle()
+      setTransport(to || null)
+    }
+
     setLoading(false)
   }
 
   useEffect(() => { if (id) fetchGR() }, [id])
 
+  // Confirm GR (DRAFT → CONFIRMED) + auto-create PUTAWAY transport
   const confirmGR = async () => {
-    if (!window.confirm('Confirm this GR? Status will change to CONFIRMED.')) return
-    const { error } = await supabase.from('goods_receipt_header').update({ status: 'CONFIRMED', updated_by: user?.id, updated_at: new Date().toISOString() }).eq('id', id)
-    if (error) { toast.error(error.message); return }
-    toast.success('GR confirmed')
-    fetchGR()
-  }
-
-  const receive = async () => {
-    if (!window.confirm('Mark all lines as received? This will update stock.')) return
+    if (!window.confirm('Confirm this GR? A putaway transport order will be created automatically.')) return
     try {
-      // Update each line with received qty
-      for (const line of lines) {
-        if (line.status === 'PENDING') {
-          const qty = receivedQtys[line.id] || 0
-          await supabase.from('goods_receipt_lines').update({ received_qty: qty, status: 'RECEIVED', updated_by: user?.id, updated_at: new Date().toISOString() }).eq('id', line.id)
+      // 1. Mark GR as CONFIRMED
+      const { error } = await supabase.from('goods_receipt_header')
+        .update({ status: 'CONFIRMED', updated_by: user?.id, updated_at: new Date().toISOString() })
+        .eq('id', id)
+      if (error) { toast.error(error.message); return }
 
-          if (qty > 0 && line.location_id) {
-            // Upsert stock
-            const { data: existing } = await supabase.from('stock')
-              .select('id, quantity')
-              .eq('warehouse', gr.warehouse).eq('site', gr.site)
-              .eq('item_id', line.item_id).eq('location_id', line.location_id)
-              .eq('lot_number', line.lot_number || '').eq('serial_number', line.serial_number || '')
-              .single()
+      // 2. Get 9-digit transport number
+      const { data: toNumber } = await supabase.rpc('get_next_transport_number', {
+        p_warehouse: gr.warehouse, p_site: gr.site
+      })
 
-            if (existing) {
-              await supabase.from('stock').update({ quantity: existing.quantity + qty, last_movement_at: new Date().toISOString(), updated_by: user?.id, updated_at: new Date().toISOString() }).eq('id', existing.id)
-            } else {
-              await supabase.from('stock').insert({ warehouse: gr.warehouse, site: gr.site, item_id: line.item_id, location_id: line.location_id, lot_number: line.lot_number || '', serial_number: line.serial_number || '', quantity: qty, reserved_qty: 0, last_movement_at: new Date().toISOString(), created_by: user?.id })
-            }
+      // 3. Create transport_orders header
+      const { data: toHeader, error: toErr } = await supabase.from('transport_orders').insert({
+        warehouse: gr.warehouse, site: gr.site,
+        to_number: toNumber,
+        to_type: 'PUTAWAY',
+        source_type: 'GR',
+        source_id: id,
+        source_number: gr.gr_number,
+        reference_number: gr.gr_number,
+        status: 'OPEN',
+        created_by: user?.id,
+      }).select().single()
+      if (toErr) { toast.error('GR confirmed but transport creation failed: ' + toErr.message); fetchGR(); return }
 
-            // Stock movement
-            await supabase.from('stock_movements').insert({ warehouse: gr.warehouse, site: gr.site, movement_type: 'RECEIPT', reference_type: 'GR', reference_id: gr.id, reference_number: gr.gr_number, item_id: line.item_id, to_location_id: line.location_id, quantity: qty, lot_number: line.lot_number || null, created_by: user?.id })
-          }
-        }
-      }
+      // 4. Create transport lines from GR lines
+      const toLines = lines.map((l, idx) => ({
+        warehouse: gr.warehouse, site: gr.site,
+        to_id: toHeader.id,
+        line_number: idx + 1,
+        item_id: l.item_id,
+        from_location_id: null,
+        to_location_id: l.location_id || null,
+        requested_qty: l.expected_qty,
+        confirmed_qty: 0,
+        status: 'OPEN',
+        lot_number: l.lot_number || null,
+        serial_number: l.serial_number || null,
+        created_by: user?.id,
+      }))
+      await supabase.from('transport_order_lines').insert(toLines)
 
-      await supabase.from('goods_receipt_header').update({ status: 'RECEIVED', received_by: user?.id, received_at: new Date().toISOString(), updated_by: user?.id, updated_at: new Date().toISOString() }).eq('id', id)
-      toast.success('GR received and stock updated')
+      toast.success(`GR confirmed — Transport ${toNumber} created for putaway`)
       fetchGR()
     } catch (err: any) {
       toast.error(err.message)
     }
   }
 
-  const cancel = async () => {
+  const cancelGR = async () => {
     if (!window.confirm('Cancel this GR?')) return
-    const { error } = await supabase.from('goods_receipt_header').update({ status: 'CANCELLED', updated_by: user?.id, updated_at: new Date().toISOString() }).eq('id', id)
+    const { error } = await supabase.from('goods_receipt_header')
+      .update({ status: 'CANCELLED', updated_by: user?.id, updated_at: new Date().toISOString() })
+      .eq('id', id)
     if (error) { toast.error(error.message); return }
     toast.success('GR cancelled')
     fetchGR()
@@ -109,24 +126,37 @@ export default function GRDetailPage() {
       <div className="flex items-center gap-3">
         <Link href="/goods-receipt" className="inline-flex items-center justify-center size-8 rounded-lg hover:bg-muted transition-colors"><ArrowLeft className="h-4 w-4" /></Link>
         <div className="flex-1">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold">{gr.gr_number}</h1>
             <Badge className={`${STATUS_COLORS[gr.status]} hover:${STATUS_COLORS[gr.status]}`}>{gr.status}</Badge>
+            {transport && (
+              <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100 font-mono">
+                TO: {transport.to_number} ({transport.status})
+              </Badge>
+            )}
           </div>
           <p className="text-sm text-slate-500">Goods Receipt · {formatDate(gr.gr_date)}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {canEdit && gr.status === 'DRAFT' && (
             <>
-              <Button variant="outline" onClick={confirmGR}><CheckCircle className="h-4 w-4 mr-2" />Confirm</Button>
-              <Button variant="outline" className="text-red-600" onClick={cancel}>Cancel</Button>
+              <Button variant="outline" onClick={confirmGR}><CheckCircle className="h-4 w-4 mr-2" />Confirm + Create Transport</Button>
+              <Button variant="outline" className="text-red-600" onClick={cancelGR}>Cancel</Button>
             </>
           )}
-          {canEdit && gr.status === 'CONFIRMED' && (
-            <Button onClick={receive}><PackageCheck className="h-4 w-4 mr-2" />Receive All</Button>
+          {gr.status === 'CONFIRMED' && transport && (
+            <Link href="/transports" className="inline-flex items-center justify-center h-9 px-4 text-sm rounded-lg border border-border hover:bg-muted transition-all gap-2">
+              <PackageCheck className="h-4 w-4" />Go to Transport Orders
+            </Link>
           )}
         </div>
       </div>
+
+      {gr.status === 'CONFIRMED' && transport && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+          <strong>Transport {transport.to_number}</strong> is open for putaway. Go to <Link href="/transports" className="underline font-medium">Transport Orders</Link> and enter this number to confirm receipt into stock.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card>
@@ -176,13 +206,7 @@ export default function GRDetailPage() {
                     <div className="text-xs text-slate-500">{line.item_master?.description}</div>
                   </TableCell>
                   <TableCell>{line.expected_qty} {line.item_master?.uom}</TableCell>
-                  <TableCell>
-                    {gr.status === 'CONFIRMED' && line.status === 'PENDING' ? (
-                      <Input type="number" className="w-24" value={receivedQtys[line.id] || 0} onChange={e => setReceivedQtys(p => ({ ...p, [line.id]: parseFloat(e.target.value) }))} />
-                    ) : (
-                      <span>{line.received_qty} {line.item_master?.uom}</span>
-                    )}
-                  </TableCell>
+                  <TableCell>{line.received_qty ?? '-'} {line.received_qty != null ? line.item_master?.uom : ''}</TableCell>
                   <TableCell>{line.location_master?.location_code || '-'}</TableCell>
                   <TableCell>{line.lot_number || '-'}</TableCell>
                   <TableCell>{line.unit_cost ? `$${line.unit_cost}` : '-'}</TableCell>

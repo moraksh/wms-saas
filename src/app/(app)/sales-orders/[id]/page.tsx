@@ -6,8 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Input } from '@/components/ui/input'
-import { ArrowLeft, CheckCircle, Truck, Package } from 'lucide-react'
+import { ArrowLeft, CheckCircle, Package, PackageCheck } from 'lucide-react'
 import { formatDate, formatDateTime } from '@/lib/utils'
 import { toast } from 'sonner'
 import Link from 'next/link'
@@ -36,8 +35,8 @@ export default function SODetailPage() {
   const supabase = createClient()
   const [so, setSo] = useState<any>(null)
   const [lines, setLines] = useState<any[]>([])
+  const [transport, setTransport] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [pickedQtys, setPickedQtys] = useState<Record<string, number>>({})
 
   const canEdit = isSuperUser || hasPermission('sales-orders', 'edit')
 
@@ -48,82 +47,87 @@ export default function SODetailPage() {
     ])
     setSo(header)
     setLines(soLines || [])
-    const qtys: Record<string, number> = {}
-    soLines?.forEach(l => { qtys[l.id] = l.picked_qty || l.ordered_qty })
-    setPickedQtys(qtys)
+
+    if (header) {
+      const { data: to } = await supabase
+        .from('transport_orders')
+        .select('id, to_number, status')
+        .eq('source_type', 'SO')
+        .eq('source_id', id)
+        .maybeSingle()
+      setTransport(to || null)
+    }
+
     setLoading(false)
   }
 
   useEffect(() => { if (id) fetchSO() }, [id])
 
-  const confirm = async () => {
-    const { error } = await supabase.from('sales_order_header').update({ status: 'CONFIRMED', updated_by: user?.id, updated_at: new Date().toISOString() }).eq('id', id)
+  const confirmSO = async () => {
+    const { error } = await supabase.from('sales_order_header')
+      .update({ status: 'CONFIRMED', updated_by: user?.id, updated_at: new Date().toISOString() })
+      .eq('id', id)
     if (error) { toast.error(error.message); return }
     toast.success('SO confirmed')
     fetchSO()
   }
 
+  // Start Picking (CONFIRMED → PICKING) + auto-create PICK transport
   const startPicking = async () => {
-    const { error } = await supabase.from('sales_order_header').update({ status: 'PICKING', updated_by: user?.id, updated_at: new Date().toISOString() }).eq('id', id)
-    if (error) { toast.error(error.message); return }
-    toast.success('Picking started')
-    fetchSO()
-  }
-
-  const completePicking = async () => {
-    if (!window.confirm('Complete picking for all lines?')) return
+    if (!window.confirm('Start picking? A pick transport order will be created automatically.')) return
     try {
-      for (const line of lines) {
-        if (line.status === 'PENDING') {
-          const qty = pickedQtys[line.id] || 0
-          await supabase.from('sales_order_lines').update({ picked_qty: qty, status: 'PICKED', updated_by: user?.id, updated_at: new Date().toISOString() }).eq('id', line.id)
-        }
-      }
-      await supabase.from('sales_order_header').update({ status: 'PICKED', picked_by: user?.id, picked_at: new Date().toISOString(), updated_by: user?.id, updated_at: new Date().toISOString() }).eq('id', id)
-      toast.success('Picking completed')
+      // 1. Update SO status
+      const { error } = await supabase.from('sales_order_header')
+        .update({ status: 'PICKING', updated_by: user?.id, updated_at: new Date().toISOString() })
+        .eq('id', id)
+      if (error) { toast.error(error.message); return }
+
+      // 2. Get 9-digit transport number
+      const { data: toNumber } = await supabase.rpc('get_next_transport_number', {
+        p_warehouse: so.warehouse, p_site: so.site
+      })
+
+      // 3. Create transport_orders header
+      const { data: toHeader, error: toErr } = await supabase.from('transport_orders').insert({
+        warehouse: so.warehouse, site: so.site,
+        to_number: toNumber,
+        to_type: 'PICK',
+        source_type: 'SO',
+        source_id: id,
+        source_number: so.so_number,
+        reference_number: so.so_number,
+        status: 'OPEN',
+        created_by: user?.id,
+      }).select().single()
+      if (toErr) { toast.error('SO updated but transport creation failed: ' + toErr.message); fetchSO(); return }
+
+      // 4. Create transport lines from SO lines
+      const toLines = lines.map((l, idx) => ({
+        warehouse: so.warehouse, site: so.site,
+        to_id: toHeader.id,
+        line_number: idx + 1,
+        item_id: l.item_id,
+        from_location_id: l.location_id || null,
+        to_location_id: null,
+        requested_qty: l.ordered_qty,
+        confirmed_qty: 0,
+        status: 'OPEN',
+        created_by: user?.id,
+      }))
+      await supabase.from('transport_order_lines').insert(toLines)
+
+      toast.success(`Picking started — Transport ${toNumber} created`)
       fetchSO()
     } catch (err: any) {
       toast.error(err.message)
     }
   }
 
-  const ship = async () => {
-    if (!window.confirm('Ship this order? This will update stock.')) return
-    try {
-      for (const line of lines) {
-        if (line.status === 'PICKED') {
-          const qty = line.picked_qty || 0
-          await supabase.from('sales_order_lines').update({ shipped_qty: qty, status: 'SHIPPED', updated_by: user?.id, updated_at: new Date().toISOString() }).eq('id', line.id)
-
-          // Deduct stock
-          if (qty > 0) {
-            const { data: stockLine } = await supabase.from('stock')
-              .select('id, quantity')
-              .eq('warehouse', so.warehouse).eq('site', so.site)
-              .eq('item_id', line.item_id)
-              .order('quantity', { ascending: false })
-              .limit(1)
-              .single()
-
-            if (stockLine) {
-              await supabase.from('stock').update({ quantity: Math.max(0, stockLine.quantity - qty), last_movement_at: new Date().toISOString(), updated_by: user?.id, updated_at: new Date().toISOString() }).eq('id', stockLine.id)
-            }
-
-            await supabase.from('stock_movements').insert({ warehouse: so.warehouse, site: so.site, movement_type: 'SHIPMENT', reference_type: 'SO', reference_id: so.id, reference_number: so.so_number, item_id: line.item_id, from_location_id: line.location_id, quantity: qty, created_by: user?.id })
-          }
-        }
-      }
-      await supabase.from('sales_order_header').update({ status: 'SHIPPED', shipped_by: user?.id, shipped_at: new Date().toISOString(), updated_by: user?.id, updated_at: new Date().toISOString() }).eq('id', id)
-      toast.success('Order shipped')
-      fetchSO()
-    } catch (err: any) {
-      toast.error(err.message)
-    }
-  }
-
-  const cancel = async () => {
+  const cancelSO = async () => {
     if (!window.confirm('Cancel this SO?')) return
-    const { error } = await supabase.from('sales_order_header').update({ status: 'CANCELLED', updated_by: user?.id, updated_at: new Date().toISOString() }).eq('id', id)
+    const { error } = await supabase.from('sales_order_header')
+      .update({ status: 'CANCELLED', updated_by: user?.id, updated_at: new Date().toISOString() })
+      .eq('id', id)
     if (error) { toast.error(error.message); return }
     toast.success('SO cancelled')
     fetchSO()
@@ -137,31 +141,41 @@ export default function SODetailPage() {
       <div className="flex items-center gap-3">
         <Link href="/sales-orders" className="inline-flex items-center justify-center size-8 rounded-lg hover:bg-muted transition-colors"><ArrowLeft className="h-4 w-4" /></Link>
         <div className="flex-1">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold">{so.so_number}</h1>
             <Badge className={`${STATUS_COLORS[so.status]} hover:${STATUS_COLORS[so.status]}`}>{so.status}</Badge>
             <Badge className={`${PRIORITY_COLORS[so.priority]} hover:${PRIORITY_COLORS[so.priority]}`}>{so.priority}</Badge>
+            {transport && (
+              <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100 font-mono">
+                TO: {transport.to_number} ({transport.status})
+              </Badge>
+            )}
           </div>
           <p className="text-sm text-slate-500">Sales Order · {formatDate(so.so_date)}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {canEdit && so.status === 'DRAFT' && (
             <>
-              <Button variant="outline" onClick={confirm}><CheckCircle className="h-4 w-4 mr-2" />Confirm</Button>
-              <Button variant="outline" className="text-red-600" onClick={cancel}>Cancel</Button>
+              <Button variant="outline" onClick={confirmSO}><CheckCircle className="h-4 w-4 mr-2" />Confirm</Button>
+              <Button variant="outline" className="text-red-600" onClick={cancelSO}>Cancel</Button>
             </>
           )}
           {canEdit && so.status === 'CONFIRMED' && (
-            <Button variant="outline" onClick={startPicking}><Package className="h-4 w-4 mr-2" />Start Picking</Button>
+            <Button variant="outline" onClick={startPicking}><Package className="h-4 w-4 mr-2" />Start Picking + Create Transport</Button>
           )}
-          {canEdit && so.status === 'PICKING' && (
-            <Button variant="outline" onClick={completePicking}><Package className="h-4 w-4 mr-2" />Complete Picking</Button>
-          )}
-          {canEdit && so.status === 'PICKED' && (
-            <Button onClick={ship}><Truck className="h-4 w-4 mr-2" />Ship</Button>
+          {(so.status === 'PICKING' || so.status === 'PICKED') && transport && (
+            <Link href="/transports" className="inline-flex items-center justify-center h-9 px-4 text-sm rounded-lg border border-border hover:bg-muted transition-all gap-2">
+              <PackageCheck className="h-4 w-4" />Go to Transport Orders
+            </Link>
           )}
         </div>
       </div>
+
+      {(so.status === 'PICKING' || so.status === 'PICKED') && transport && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+          <strong>Transport {transport.to_number}</strong> is open for picking. Go to <Link href="/transports" className="underline font-medium">Transport Orders</Link> and enter this number to confirm and deduct stock.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card>
@@ -213,13 +227,7 @@ export default function SODetailPage() {
                     <div className="text-xs text-slate-500">{line.item_master?.description}</div>
                   </TableCell>
                   <TableCell>{line.ordered_qty} {line.item_master?.uom}</TableCell>
-                  <TableCell>
-                    {so.status === 'PICKING' && line.status === 'PENDING' ? (
-                      <Input type="number" className="w-24" value={pickedQtys[line.id] || 0} onChange={e => setPickedQtys(p => ({ ...p, [line.id]: parseFloat(e.target.value) }))} />
-                    ) : (
-                      <span>{line.picked_qty || 0} {line.item_master?.uom}</span>
-                    )}
-                  </TableCell>
+                  <TableCell>{line.picked_qty || 0} {line.item_master?.uom}</TableCell>
                   <TableCell>{line.shipped_qty || 0} {line.item_master?.uom}</TableCell>
                   <TableCell>{line.location_master?.location_code || '-'}</TableCell>
                   <TableCell>{line.unit_price ? `$${line.unit_price}` : '-'}</TableCell>
