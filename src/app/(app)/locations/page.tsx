@@ -10,7 +10,8 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Plus, Pencil, Trash2, Search, MapPin } from 'lucide-react'
+import { BulkActionBar } from '@/components/ui/list-actions'
+import { Plus, Pencil, Trash2, Search, MapPin, Copy } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Location {
@@ -22,6 +23,14 @@ interface Location {
 const EMPTY: Partial<Location> = { location_code: '', zone: '', aisle: '', bay: '', level: '', position: '', location_type: 'STORAGE', max_weight: 0, is_active: true }
 const LOCATION_TYPES = ['RECEIVING', 'STORAGE', 'SHIPPING', 'STAGING', 'QUARANTINE']
 
+const TYPE_COLORS: Record<string, string> = {
+  RECEIVING: 'bg-blue-100 text-blue-700',
+  STORAGE: 'bg-green-100 text-green-700',
+  SHIPPING: 'bg-orange-100 text-orange-700',
+  STAGING: 'bg-yellow-100 text-yellow-700',
+  QUARANTINE: 'bg-red-100 text-red-700',
+}
+
 export default function LocationsPage() {
   const { warehouse, site } = useWarehouse()
   const { hasPermission, isSuperUser, user } = useAuth()
@@ -31,6 +40,7 @@ export default function LocationsPage() {
   const [form, setForm] = useState<Partial<Location>>(EMPTY)
   const [editing, setEditing] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const supabase = createClient()
 
   const canCreate = isSuperUser || hasPermission('locations', 'create')
@@ -45,6 +55,13 @@ export default function LocationsPage() {
   }
 
   useEffect(() => { if (warehouse && site) fetchLocations() }, [warehouse, site, search])
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  }
+  const toggleAll = () => {
+    setSelected(prev => prev.size === locations.length ? new Set() : new Set(locations.map(l => l.id)))
+  }
 
   const save = async () => {
     if (!form.location_code) { toast.error('Location code is required'); return }
@@ -70,12 +87,43 @@ export default function LocationsPage() {
     fetchLocations()
   }
 
-  const TYPE_COLORS: Record<string, string> = {
-    RECEIVING: 'bg-blue-100 text-blue-700',
-    STORAGE: 'bg-green-100 text-green-700',
-    SHIPPING: 'bg-orange-100 text-orange-700',
-    STAGING: 'bg-yellow-100 text-yellow-700',
-    QUARANTINE: 'bg-red-100 text-red-700',
+  const copyLocation = async (loc: Location) => {
+    const newCode = `${loc.location_code}-COPY`
+    const { error } = await supabase.from('location_master').insert({
+      ...loc, id: undefined, location_code: newCode, warehouse, site,
+      created_by: user?.id, updated_by: user?.id,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    if (error) { toast.error(error.message); return }
+    toast.success(`Copied as ${newCode}`)
+    fetchLocations()
+  }
+
+  const bulkDelete = async () => {
+    if (!confirm(`Delete ${selected.size} location(s)?`)) return
+    const ids = Array.from(selected)
+    const { error } = await supabase.from('location_master').delete().in('id', ids)
+    if (error) { toast.error(error.message); return }
+    toast.success(`${ids.length} location(s) deleted`)
+    setSelected(new Set())
+    fetchLocations()
+  }
+
+  const bulkCopy = async () => {
+    const selectedLocs = locations.filter(l => selected.has(l.id))
+    let copied = 0
+    for (const loc of selectedLocs) {
+      const newCode = `${loc.location_code}-COPY`
+      const { error } = await supabase.from('location_master').insert({
+        ...loc, id: undefined, location_code: newCode, warehouse, site,
+        created_by: user?.id, updated_by: user?.id,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      })
+      if (!error) copied++
+    }
+    toast.success(`${copied} location(s) copied`)
+    setSelected(new Set())
+    fetchLocations()
   }
 
   return (
@@ -95,28 +143,35 @@ export default function LocationsPage() {
             <Input placeholder="Search locations..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <BulkActionBar selectedCount={selected.size} onCopy={bulkCopy} onDelete={bulkDelete} canCreate={canCreate} canDelete={canDelete} />
           <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <input type="checkbox" checked={locations.length > 0 && selected.size === locations.length} onChange={toggleAll} className="h-4 w-4 cursor-pointer" />
+                </TableHead>
                 <TableHead>Location Code</TableHead>
                 <TableHead>Zone</TableHead>
                 <TableHead>Aisle / Bay / Level</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
+                <TableHead className="w-28">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {locations.length === 0 && <TableRow><TableCell colSpan={6} className="text-center text-slate-500 py-8">No locations found</TableCell></TableRow>}
+              {locations.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-slate-500 py-8">No locations found</TableCell></TableRow>}
               {locations.map(loc => (
-                <TableRow key={loc.id}>
+                <TableRow key={loc.id} className={selected.has(loc.id) ? 'bg-blue-50' : ''}>
+                  <TableCell>
+                    <input type="checkbox" checked={selected.has(loc.id)} onChange={() => toggleSelect(loc.id)} className="h-4 w-4 cursor-pointer" />
+                  </TableCell>
                   <TableCell className="font-mono text-sm font-medium">{loc.location_code}</TableCell>
                   <TableCell>{loc.zone || '-'}</TableCell>
                   <TableCell className="text-sm text-slate-600">{[loc.aisle, loc.bay, loc.level, loc.position].filter(Boolean).join(' / ') || '-'}</TableCell>
                   <TableCell>
-                    <Badge className={`text-xs ${TYPE_COLORS[loc.location_type] || 'bg-gray-100 text-gray-700'} hover:${TYPE_COLORS[loc.location_type] || ''}`}>{loc.location_type}</Badge>
+                    <Badge className={`text-xs ${TYPE_COLORS[loc.location_type] || 'bg-gray-100 text-gray-700'}`}>{loc.location_type}</Badge>
                   </TableCell>
                   <TableCell>
                     <Badge className={loc.is_active ? 'bg-green-100 text-green-700 hover:bg-green-100' : 'bg-red-100 text-red-700 hover:bg-red-100'}>
@@ -125,6 +180,7 @@ export default function LocationsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
+                      {canCreate && <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-500" onClick={() => copyLocation(loc)} title="Copy"><Copy className="h-3 w-3" /></Button>}
                       {canEdit && <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setForm(loc); setEditing(loc.id); setOpen(true) }}><Pencil className="h-3 w-3" /></Button>}
                       {canDelete && <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500" onClick={() => remove(loc.id)}><Trash2 className="h-3 w-3" /></Button>}
                     </div>

@@ -10,12 +10,11 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Plus, Pencil, Users, ShieldCheck } from 'lucide-react'
+import { Plus, Pencil, Users, ShieldCheck, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { MODULES } from '@/types'
 
-const EMPTY_USER = { email: '', full_name: '', role_id: '', password: '', is_active: true }
+const EMPTY_USER = { username: '', full_name: '', role_id: '', password: '', is_active: true }
 const EMPTY_PERMS: Record<string, { view: boolean; create: boolean; edit: boolean; delete: boolean }> = {}
 MODULES.forEach(m => { EMPTY_PERMS[m.key] = { view: false, create: false, edit: false, delete: false } })
 
@@ -24,6 +23,7 @@ export default function UsersPage() {
   const { isSuperUser } = useAuth()
   const [users, setUsers] = useState<any[]>([])
   const [roles, setRoles] = useState<any[]>([])
+  const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
   const [permOpen, setPermOpen] = useState(false)
   const [form, setForm] = useState({ ...EMPTY_USER })
@@ -34,7 +34,9 @@ export default function UsersPage() {
   const supabase = createClient()
 
   const fetchUsers = async () => {
-    const { data } = await supabase.from('wms_users').select('*, roles(code, name, is_super_user)').eq('warehouse', warehouse).eq('site', site).order('full_name')
+    let q = supabase.from('wms_users').select('*, roles(code, name, is_super_user)').eq('warehouse', warehouse).eq('site', site).order('full_name')
+    if (search) q = q.or(`full_name.ilike.%${search}%,username.ilike.%${search}%`)
+    const { data } = await q
     setUsers(data || [])
   }
 
@@ -44,9 +46,10 @@ export default function UsersPage() {
   }
 
   useEffect(() => { if (warehouse && site) { fetchUsers(); fetchRoles() } }, [warehouse, site])
+  useEffect(() => { if (warehouse && site) fetchUsers() }, [search])
 
   const save = async () => {
-    if (!form.email || !form.full_name || !form.role_id) { toast.error('Email, name and role are required'); return }
+    if (!form.full_name || !form.role_id) { toast.error('Full name and role are required'); return }
     setSaving(true)
     try {
       if (editing) {
@@ -55,6 +58,7 @@ export default function UsersPage() {
         if (error) throw error
         toast.success('User updated')
       } else {
+        if (!form.username) { toast.error('Username is required'); setSaving(false); return }
         if (!form.password || form.password.length < 6) { toast.error('Password must be at least 6 characters'); setSaving(false); return }
         const res = await fetch('/api/users', {
           method: 'POST',
@@ -125,13 +129,19 @@ export default function UsersPage() {
       </div>
 
       <Card>
-        <CardContent className="p-0">
+        <CardHeader className="pb-3">
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <Input placeholder="Search users..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+        </CardHeader>
+        <CardContent>
           <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
+                <TableHead>Full Name</TableHead>
+                <TableHead>Username</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-32">Actions</TableHead>
@@ -142,7 +152,7 @@ export default function UsersPage() {
               {users.map(u => (
                 <TableRow key={u.id}>
                   <TableCell className="font-medium">{u.full_name}</TableCell>
-                  <TableCell>{u.email}</TableCell>
+                  <TableCell className="font-mono text-sm">{u.username || u.email?.replace('@wms.local', '') || '-'}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-xs">{u.roles?.name || '-'}</Badge>
                     {u.roles?.is_super_user && <Badge className="ml-1 text-xs bg-purple-100 text-purple-700 hover:bg-purple-100">Super</Badge>}
@@ -154,7 +164,7 @@ export default function UsersPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setForm({ email: u.email, full_name: u.full_name, role_id: u.role_id, password: '', is_active: u.is_active }); setEditing(u.id); setOpen(true) }}><Pencil className="h-3 w-3" /></Button>
+                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setForm({ username: u.username || '', full_name: u.full_name, role_id: u.role_id, password: '', is_active: u.is_active }); setEditing(u.id); setOpen(true) }}><Pencil className="h-3 w-3" /></Button>
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-purple-600" onClick={() => openPerms(u)} title="Permissions"><ShieldCheck className="h-3 w-3" /></Button>
                     </div>
                   </TableCell>
@@ -175,10 +185,12 @@ export default function UsersPage() {
               <Label>Full Name *</Label>
               <Input value={form.full_name} onChange={e => setForm(p => ({ ...p, full_name: e.target.value }))} />
             </div>
-            <div className="space-y-1.5">
-              <Label>Email *</Label>
-              <Input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} disabled={!!editing} />
-            </div>
+            {!editing && (
+              <div className="space-y-1.5">
+                <Label>Username *</Label>
+                <Input value={form.username} onChange={e => setForm(p => ({ ...p, username: e.target.value.toLowerCase().trim() }))} placeholder="e.g. jsmith" autoComplete="off" />
+              </div>
+            )}
             {!editing && (
               <div className="space-y-1.5">
                 <Label>Password *</Label>

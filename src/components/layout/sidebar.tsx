@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/auth-context'
 import {
   LayoutDashboard, Package, MapPin, Users, Truck, ArrowDownToLine,
   ShoppingCart, ClipboardList, BarChart3, Database, Settings, LogOut,
-  Package2, ChevronDown, ChevronRight, X
+  Package2, ChevronDown, ChevronRight, X, Scan, MoveRight
 } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,8 @@ const NAV_ITEMS = [
     label: 'Transactions', icon: BarChart3, children: [
       { href: '/goods-receipt', icon: ArrowDownToLine, label: 'Goods Receipt', module: 'goods-receipt' },
       { href: '/sales-orders', icon: ShoppingCart, label: 'Sales Orders', module: 'sales-orders' },
+      { href: '/picks', icon: Scan, label: 'Open Picks', module: 'sales-orders' },
+      { href: '/transports', icon: MoveRight, label: 'Transport Orders', module: 'sales-orders' },
       { href: '/stock-taking', icon: ClipboardList, label: 'Stock Taking', module: 'stock-taking' },
     ]
   },

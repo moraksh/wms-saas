@@ -24,11 +24,14 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
-  const { email, password, full_name, role_id, warehouse, site, default_warehouse, default_site } = body
+  const { username, password, full_name, role_id, warehouse, site, default_warehouse, default_site, is_active } = body
 
-  if (!email || !password || !full_name) {
-    return NextResponse.json({ error: 'Email, password and full name are required' }, { status: 400 })
+  if (!username || !password || !full_name) {
+    return NextResponse.json({ error: 'Username, password and full name are required' }, { status: 400 })
   }
+
+  // Use username@wms.local as internal email
+  const email = `${username.toLowerCase().trim()}@wms.local`
 
   const adminClient = createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -52,9 +55,10 @@ export async function POST(request: NextRequest) {
       site: site || 'SITE01',
       auth_user_id: authData.user.id,
       email,
+      username: username.toLowerCase().trim(),
       full_name,
       role_id: role_id || null,
-      is_active: true,
+      is_active: is_active !== false,
       default_warehouse: default_warehouse || warehouse || 'WH001',
       default_site: default_site || site || 'SITE01',
     })
@@ -62,7 +66,6 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (wmsError) {
-    // Rollback auth user
     await adminClient.auth.admin.deleteUser(authData.user.id)
     return NextResponse.json({ error: wmsError.message }, { status: 400 })
   }

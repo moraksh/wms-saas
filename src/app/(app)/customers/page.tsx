@@ -10,7 +10,8 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Plus, Pencil, Trash2, Search, Users } from 'lucide-react'
+import { BulkActionBar } from '@/components/ui/list-actions'
+import { Plus, Pencil, Trash2, Search, Users, Copy } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Customer {
@@ -30,6 +31,7 @@ export default function CustomersPage() {
   const [form, setForm] = useState<Partial<Customer>>(EMPTY)
   const [editing, setEditing] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const supabase = createClient()
 
   const canCreate = isSuperUser || hasPermission('customers', 'create')
@@ -44,6 +46,13 @@ export default function CustomersPage() {
   }
 
   useEffect(() => { if (warehouse && site) fetchCustomers() }, [warehouse, site, search])
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  }
+  const toggleAll = () => {
+    setSelected(prev => prev.size === customers.length ? new Set() : new Set(customers.map(c => c.id)))
+  }
 
   const save = async () => {
     if (!form.customer_code || !form.name) { toast.error('Customer code and name are required'); return }
@@ -69,6 +78,45 @@ export default function CustomersPage() {
     fetchCustomers()
   }
 
+  const copyCustomer = async (cust: Customer) => {
+    const newCode = `${cust.customer_code}-COPY`
+    const { error } = await supabase.from('customers').insert({
+      ...cust, id: undefined, customer_code: newCode, warehouse, site,
+      created_by: user?.id, updated_by: user?.id,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    if (error) { toast.error(error.message); return }
+    toast.success(`Copied as ${newCode}`)
+    fetchCustomers()
+  }
+
+  const bulkDelete = async () => {
+    if (!confirm(`Delete ${selected.size} customer(s)?`)) return
+    const ids = Array.from(selected)
+    const { error } = await supabase.from('customers').delete().in('id', ids)
+    if (error) { toast.error(error.message); return }
+    toast.success(`${ids.length} customer(s) deleted`)
+    setSelected(new Set())
+    fetchCustomers()
+  }
+
+  const bulkCopy = async () => {
+    const selectedItems = customers.filter(c => selected.has(c.id))
+    let copied = 0
+    for (const cust of selectedItems) {
+      const newCode = `${cust.customer_code}-COPY`
+      const { error } = await supabase.from('customers').insert({
+        ...cust, id: undefined, customer_code: newCode, warehouse, site,
+        created_by: user?.id, updated_by: user?.id,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      })
+      if (!error) copied++
+    }
+    toast.success(`${copied} customer(s) copied`)
+    setSelected(new Set())
+    fetchCustomers()
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3 justify-between">
@@ -86,11 +134,15 @@ export default function CustomersPage() {
             <Input placeholder="Search customers..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <BulkActionBar selectedCount={selected.size} onCopy={bulkCopy} onDelete={bulkDelete} canCreate={canCreate} canDelete={canDelete} />
           <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <input type="checkbox" checked={customers.length > 0 && selected.size === customers.length} onChange={toggleAll} className="h-4 w-4 cursor-pointer" />
+                </TableHead>
                 <TableHead>Code</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>City</TableHead>
@@ -98,13 +150,16 @@ export default function CustomersPage() {
                 <TableHead>Payment Terms</TableHead>
                 <TableHead>Credit Limit</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
+                <TableHead className="w-28">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {customers.length === 0 && <TableRow><TableCell colSpan={8} className="text-center text-slate-500 py-8">No customers found</TableCell></TableRow>}
+              {customers.length === 0 && <TableRow><TableCell colSpan={9} className="text-center text-slate-500 py-8">No customers found</TableCell></TableRow>}
               {customers.map(cust => (
-                <TableRow key={cust.id}>
+                <TableRow key={cust.id} className={selected.has(cust.id) ? 'bg-blue-50' : ''}>
+                  <TableCell>
+                    <input type="checkbox" checked={selected.has(cust.id)} onChange={() => toggleSelect(cust.id)} className="h-4 w-4 cursor-pointer" />
+                  </TableCell>
                   <TableCell className="font-mono text-sm font-medium">{cust.customer_code}</TableCell>
                   <TableCell className="font-medium">{cust.name}</TableCell>
                   <TableCell>{cust.city || '-'}</TableCell>
@@ -118,6 +173,7 @@ export default function CustomersPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
+                      {canCreate && <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-500" onClick={() => copyCustomer(cust)} title="Copy"><Copy className="h-3 w-3" /></Button>}
                       {canEdit && <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setForm(cust); setEditing(cust.id); setOpen(true) }}><Pencil className="h-3 w-3" /></Button>}
                       {canDelete && <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500" onClick={() => remove(cust.id)}><Trash2 className="h-3 w-3" /></Button>}
                     </div>

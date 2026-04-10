@@ -10,7 +10,8 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Plus, Pencil, Trash2, Search, Package } from 'lucide-react'
+import { BulkActionBar } from '@/components/ui/list-actions'
+import { Plus, Pencil, Trash2, Search, Package, Copy } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Item {
@@ -30,6 +31,7 @@ export default function ItemsPage() {
   const [form, setForm] = useState<Partial<Item>>(EMPTY)
   const [editing, setEditing] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const supabase = createClient()
 
   const canCreate = isSuperUser || hasPermission('items', 'create')
@@ -44,6 +46,13 @@ export default function ItemsPage() {
   }
 
   useEffect(() => { if (warehouse && site) fetchItems() }, [warehouse, site, search])
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  }
+  const toggleAll = () => {
+    setSelected(prev => prev.size === items.length ? new Set() : new Set(items.map(i => i.id)))
+  }
 
   const save = async () => {
     if (!form.item_code || !form.description) { toast.error('Item code and description are required'); return }
@@ -69,6 +78,45 @@ export default function ItemsPage() {
     fetchItems()
   }
 
+  const copyItem = async (item: Item) => {
+    const newCode = `${item.item_code}-COPY`
+    const { error } = await supabase.from('item_master').insert({
+      ...item, id: undefined, item_code: newCode, warehouse, site,
+      created_by: user?.id, updated_by: user?.id,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    if (error) { toast.error(error.message); return }
+    toast.success(`Copied as ${newCode}`)
+    fetchItems()
+  }
+
+  const bulkDelete = async () => {
+    if (!confirm(`Delete ${selected.size} item(s)?`)) return
+    const ids = Array.from(selected)
+    const { error } = await supabase.from('item_master').delete().in('id', ids)
+    if (error) { toast.error(error.message); return }
+    toast.success(`${ids.length} item(s) deleted`)
+    setSelected(new Set())
+    fetchItems()
+  }
+
+  const bulkCopy = async () => {
+    const selectedItems = items.filter(i => selected.has(i.id))
+    let copied = 0
+    for (const item of selectedItems) {
+      const newCode = `${item.item_code}-COPY`
+      const { error } = await supabase.from('item_master').insert({
+        ...item, id: undefined, item_code: newCode, warehouse, site,
+        created_by: user?.id, updated_by: user?.id,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      })
+      if (!error) copied++
+    }
+    toast.success(`${copied} item(s) copied`)
+    setSelected(new Set())
+    fetchItems()
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3 justify-between">
@@ -88,24 +136,31 @@ export default function ItemsPage() {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <BulkActionBar selectedCount={selected.size} onCopy={bulkCopy} onDelete={bulkDelete} canCreate={canCreate} canDelete={canDelete} />
           <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <input type="checkbox" checked={items.length > 0 && selected.size === items.length} onChange={toggleAll} className="h-4 w-4 cursor-pointer" />
+                </TableHead>
                 <TableHead>Item Code</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>UOM</TableHead>
                 <TableHead>Tracked</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
+                <TableHead className="w-28">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-slate-500 py-8">No items found</TableCell></TableRow>}
+              {items.length === 0 && <TableRow><TableCell colSpan={8} className="text-center text-slate-500 py-8">No items found</TableCell></TableRow>}
               {items.map(item => (
-                <TableRow key={item.id}>
+                <TableRow key={item.id} className={selected.has(item.id) ? 'bg-blue-50' : ''}>
+                  <TableCell>
+                    <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)} className="h-4 w-4 cursor-pointer" />
+                  </TableCell>
                   <TableCell className="font-mono text-sm font-medium">{item.item_code}</TableCell>
                   <TableCell>{item.description}</TableCell>
                   <TableCell>{item.category || '-'}</TableCell>
@@ -122,6 +177,7 @@ export default function ItemsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
+                      {canCreate && <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-500" onClick={() => copyItem(item)} title="Copy"><Copy className="h-3 w-3" /></Button>}
                       {canEdit && <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setForm(item); setEditing(item.id); setOpen(true) }}><Pencil className="h-3 w-3" /></Button>}
                       {canDelete && <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500" onClick={() => remove(item.id)}><Trash2 className="h-3 w-3" /></Button>}
                     </div>

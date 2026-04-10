@@ -10,7 +10,8 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Plus, Pencil, Trash2, Search, Truck } from 'lucide-react'
+import { BulkActionBar } from '@/components/ui/list-actions'
+import { Plus, Pencil, Trash2, Search, Truck, Copy } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Supplier {
@@ -30,6 +31,7 @@ export default function SuppliersPage() {
   const [form, setForm] = useState<Partial<Supplier>>(EMPTY)
   const [editing, setEditing] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const supabase = createClient()
 
   const canCreate = isSuperUser || hasPermission('suppliers', 'create')
@@ -44,6 +46,13 @@ export default function SuppliersPage() {
   }
 
   useEffect(() => { if (warehouse && site) fetchSuppliers() }, [warehouse, site, search])
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  }
+  const toggleAll = () => {
+    setSelected(prev => prev.size === suppliers.length ? new Set() : new Set(suppliers.map(s => s.id)))
+  }
 
   const save = async () => {
     if (!form.supplier_code || !form.name) { toast.error('Supplier code and name are required'); return }
@@ -69,6 +78,45 @@ export default function SuppliersPage() {
     fetchSuppliers()
   }
 
+  const copySupplier = async (sup: Supplier) => {
+    const newCode = `${sup.supplier_code}-COPY`
+    const { error } = await supabase.from('suppliers').insert({
+      ...sup, id: undefined, supplier_code: newCode, warehouse, site,
+      created_by: user?.id, updated_by: user?.id,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    })
+    if (error) { toast.error(error.message); return }
+    toast.success(`Copied as ${newCode}`)
+    fetchSuppliers()
+  }
+
+  const bulkDelete = async () => {
+    if (!confirm(`Delete ${selected.size} supplier(s)?`)) return
+    const ids = Array.from(selected)
+    const { error } = await supabase.from('suppliers').delete().in('id', ids)
+    if (error) { toast.error(error.message); return }
+    toast.success(`${ids.length} supplier(s) deleted`)
+    setSelected(new Set())
+    fetchSuppliers()
+  }
+
+  const bulkCopy = async () => {
+    const selectedItems = suppliers.filter(s => selected.has(s.id))
+    let copied = 0
+    for (const sup of selectedItems) {
+      const newCode = `${sup.supplier_code}-COPY`
+      const { error } = await supabase.from('suppliers').insert({
+        ...sup, id: undefined, supplier_code: newCode, warehouse, site,
+        created_by: user?.id, updated_by: user?.id,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      })
+      if (!error) copied++
+    }
+    toast.success(`${copied} supplier(s) copied`)
+    setSelected(new Set())
+    fetchSuppliers()
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3 justify-between">
@@ -86,11 +134,15 @@ export default function SuppliersPage() {
             <Input placeholder="Search suppliers..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <BulkActionBar selectedCount={selected.size} onCopy={bulkCopy} onDelete={bulkDelete} canCreate={canCreate} canDelete={canDelete} />
           <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <input type="checkbox" checked={suppliers.length > 0 && selected.size === suppliers.length} onChange={toggleAll} className="h-4 w-4 cursor-pointer" />
+                </TableHead>
                 <TableHead>Code</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>City</TableHead>
@@ -98,13 +150,16 @@ export default function SuppliersPage() {
                 <TableHead>Payment Terms</TableHead>
                 <TableHead>Lead Time</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
+                <TableHead className="w-28">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {suppliers.length === 0 && <TableRow><TableCell colSpan={8} className="text-center text-slate-500 py-8">No suppliers found</TableCell></TableRow>}
+              {suppliers.length === 0 && <TableRow><TableCell colSpan={9} className="text-center text-slate-500 py-8">No suppliers found</TableCell></TableRow>}
               {suppliers.map(sup => (
-                <TableRow key={sup.id}>
+                <TableRow key={sup.id} className={selected.has(sup.id) ? 'bg-blue-50' : ''}>
+                  <TableCell>
+                    <input type="checkbox" checked={selected.has(sup.id)} onChange={() => toggleSelect(sup.id)} className="h-4 w-4 cursor-pointer" />
+                  </TableCell>
                   <TableCell className="font-mono text-sm font-medium">{sup.supplier_code}</TableCell>
                   <TableCell className="font-medium">{sup.name}</TableCell>
                   <TableCell>{sup.city || '-'}</TableCell>
@@ -118,6 +173,7 @@ export default function SuppliersPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
+                      {canCreate && <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-500" onClick={() => copySupplier(sup)} title="Copy"><Copy className="h-3 w-3" /></Button>}
                       {canEdit && <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setForm(sup); setEditing(sup.id); setOpen(true) }}><Pencil className="h-3 w-3" /></Button>}
                       {canDelete && <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500" onClick={() => remove(sup.id)}><Trash2 className="h-3 w-3" /></Button>}
                     </div>
