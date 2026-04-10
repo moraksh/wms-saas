@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/auth-context'
 import {
   LayoutDashboard, Package, MapPin, Users, Truck, ArrowDownToLine,
   ShoppingCart, ClipboardList, BarChart3, Database, Settings, LogOut,
-  Package2, ChevronDown, ChevronRight
+  Package2, ChevronDown, ChevronRight, X
 } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -35,7 +35,12 @@ const NAV_ITEMS = [
   { href: '/settings', icon: Settings, label: 'Settings', module: 'settings' },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  open?: boolean
+  onClose?: () => void
+}
+
+export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname()
   const { hasPermission, signOut, isSuperUser } = useAuth()
   const [expanded, setExpanded] = useState<string[]>(['Masters', 'Transactions'])
@@ -46,9 +51,13 @@ export function Sidebar() {
 
   const canSeeItem = (module: string) => isSuperUser || hasPermission(module, 'view')
 
-  return (
-    <div className="flex flex-col h-full bg-slate-900 text-white w-64 shrink-0">
-      <div className="p-4 border-b border-slate-700">
+  const handleNavClick = () => {
+    if (onClose) onClose()
+  }
+
+  const sidebarContent = (
+    <div className="flex flex-col h-full bg-slate-900 text-white w-64">
+      <div className="p-4 border-b border-slate-700 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="bg-blue-500 p-2 rounded-lg">
             <Package2 className="h-6 w-6" />
@@ -58,6 +67,11 @@ export function Sidebar() {
             <div className="text-xs text-slate-400">Warehouse Management</div>
           </div>
         </div>
+        {onClose && (
+          <button onClick={onClose} className="md:hidden text-slate-400 hover:text-white p-1">
+            <X className="h-5 w-5" />
+          </button>
+        )}
       </div>
 
       <nav className="flex-1 overflow-y-auto p-3 space-y-1">
@@ -82,6 +96,7 @@ export function Sidebar() {
                       <Link
                         key={child.href}
                         href={child.href}
+                        onClick={handleNavClick}
                         className={cn(
                           'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
                           pathname.startsWith(child.href)
@@ -99,14 +114,15 @@ export function Sidebar() {
             )
           }
 
-          if (!canSeeItem(item.module)) return null
+          if (!canSeeItem((item as any).module)) return null
           return (
             <Link
-              key={item.href}
-              href={item.href}
+              key={(item as any).href}
+              href={(item as any).href}
+              onClick={handleNavClick}
               className={cn(
                 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
-                pathname.startsWith(item.href)
+                pathname.startsWith((item as any).href)
                   ? 'bg-blue-600 text-white'
                   : 'text-slate-300 hover:bg-slate-800 hover:text-white'
               )}
@@ -129,5 +145,29 @@ export function Sidebar() {
         </Button>
       </div>
     </div>
+  )
+
+  return (
+    <>
+      {/* Desktop sidebar - always visible */}
+      <div className="hidden md:flex flex-col h-full bg-slate-900 text-white w-64 shrink-0">
+        {sidebarContent}
+      </div>
+
+      {/* Mobile sidebar - drawer overlay */}
+      {open && (
+        <div className="md:hidden fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/50"
+            onClick={onClose}
+          />
+          {/* Drawer */}
+          <div className="relative flex flex-col h-full bg-slate-900 text-white w-72 shadow-xl">
+            {sidebarContent}
+          </div>
+        </div>
+      )}
+    </>
   )
 }

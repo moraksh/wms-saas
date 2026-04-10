@@ -129,6 +129,7 @@ export default function ReportsPage() {
           <Card>
             <CardHeader><CardTitle className="text-base">Goods Receipts - {dateFrom} to {dateTo}</CardTitle></CardHeader>
             <CardContent>
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -154,6 +155,7 @@ export default function ReportsPage() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -162,6 +164,7 @@ export default function ReportsPage() {
           <Card>
             <CardHeader><CardTitle className="text-base">Sales Orders - {dateFrom} to {dateTo}</CardTitle></CardHeader>
             <CardContent>
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -187,6 +190,7 @@ export default function ReportsPage() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -195,6 +199,7 @@ export default function ReportsPage() {
           <Card>
             <CardHeader><CardTitle className="text-base">Stock Movements (last 100) - {dateFrom} to {dateTo}</CardTitle></CardHeader>
             <CardContent>
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -225,6 +230,7 @@ export default function ReportsPage() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
             </CardContent>
           </Card>
         </TabsContent>

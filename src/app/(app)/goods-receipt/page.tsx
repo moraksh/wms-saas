@@ -43,7 +43,7 @@ export default function GoodsReceiptPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center gap-3 justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><ArrowDownToLine className="h-6 w-6 text-blue-600" /> Goods Receipt</h1>
           <p className="text-sm text-slate-500">Manage inbound goods receipts</p>
@@ -61,6 +61,7 @@ export default function GoodsReceiptPage() {
           </div>
         </CardHeader>
         <CardContent>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -92,6 +93,7 @@ export default function GoodsReceiptPage() {
               ))}
             </TableBody>
           </Table>
+        </div>
         </CardContent>
       </Card>
     </div>

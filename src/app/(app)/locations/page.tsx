@@ -80,7 +80,7 @@ export default function LocationsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center gap-3 justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><MapPin className="h-6 w-6 text-blue-600" /> Location Master</h1>
           <p className="text-sm text-slate-500">Manage warehouse locations</p>
@@ -96,6 +96,7 @@ export default function LocationsPage() {
           </div>
         </CardHeader>
         <CardContent>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -132,13 +133,14 @@ export default function LocationsPage() {
               ))}
             </TableBody>
           </Table>
+        </div>
         </CardContent>
       </Card>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader><DialogTitle>{editing ? 'Edit Location' : 'New Location'}</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="col-span-2 space-y-1.5">
               <Label>Location Code *</Label>
               <Input value={form.location_code || ''} onChange={e => setForm(p => ({ ...p, location_code: e.target.value }))} disabled={!!editing} placeholder="e.g. A-01-01-01" />

@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { Sidebar } from '@/components/layout/sidebar'
-import { Header } from '@/components/layout/header'
+import { AppShell } from '@/components/layout/app-shell'
 import { AuthProvider } from '@/contexts/auth-context'
 import { WarehouseProvider } from '@/contexts/warehouse-context'
 
@@ -34,15 +33,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         defaultWarehouseName={(siteData?.warehouses as any)?.name || warehouse}
         defaultSiteName={siteData?.name || site}
       >
-        <div className="flex h-screen overflow-hidden bg-slate-50">
-          <Sidebar />
-          <div className="flex flex-col flex-1 overflow-hidden">
-            <Header />
-            <main className="flex-1 overflow-auto p-6">
-              {children}
-            </main>
-          </div>
-        </div>
+        <AppShell>{children}</AppShell>
       </WarehouseProvider>
     </AuthProvider>
   )

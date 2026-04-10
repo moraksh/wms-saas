@@ -116,7 +116,7 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center gap-3 justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><Users className="h-6 w-6 text-blue-600" /> User Management</h1>
           <p className="text-sm text-slate-500">Manage users and permissions</p>
@@ -126,6 +126,7 @@ export default function UsersPage() {
 
       <Card>
         <CardContent className="p-0">
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -161,6 +162,7 @@ export default function UsersPage() {
               ))}
             </TableBody>
           </Table>
+        </div>
         </CardContent>
       </Card>
 
@@ -207,7 +209,7 @@ export default function UsersPage() {
 
       {/* Permissions Dialog */}
       <Dialog open={permOpen} onOpenChange={setPermOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="w-full sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Permissions - {selectedUser?.full_name}</DialogTitle>
           </DialogHeader>

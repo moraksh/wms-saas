@@ -104,7 +104,7 @@ export default function NewGRPage() {
       <Card>
         <CardHeader><CardTitle className="text-base">Header Information</CardTitle></CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>Supplier</Label>
               <select className="w-full border rounded-md px-3 py-2 text-sm" value={form.supplier_id} onChange={e => setForm(p => ({ ...p, supplier_id: e.target.value }))}>
@@ -134,6 +134,7 @@ export default function NewGRPage() {
           <Button size="sm" variant="outline" onClick={addLine}><Plus className="h-3 w-3 mr-1" />Add Line</Button>
         </CardHeader>
         <CardContent>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -170,6 +171,7 @@ export default function NewGRPage() {
               ))}
             </TableBody>
           </Table>
+        </div>
         </CardContent>
       </Card>
 

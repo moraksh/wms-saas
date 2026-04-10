@@ -163,7 +163,7 @@ export default function SODetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card>
           <CardHeader><CardTitle className="text-sm">Header Details</CardTitle></CardHeader>
           <CardContent className="text-sm space-y-2">
@@ -189,6 +189,7 @@ export default function SODetailPage() {
       <Card>
         <CardHeader><CardTitle className="text-base">Lines</CardTitle></CardHeader>
         <CardContent>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -229,6 +230,7 @@ export default function SODetailPage() {
               ))}
             </TableBody>
           </Table>
+        </div>
         </CardContent>
       </Card>
     </div>

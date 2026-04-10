@@ -104,7 +104,7 @@ export default function StockTakingPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center gap-3 justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><ClipboardList className="h-6 w-6 text-blue-600" /> Stock Taking</h1>
           <p className="text-sm text-slate-500">Manage stock counts and variance adjustments</p>
@@ -120,6 +120,7 @@ export default function StockTakingPage() {
           </div>
         </CardHeader>
         <CardContent>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -149,6 +150,7 @@ export default function StockTakingPage() {
               ))}
             </TableBody>
           </Table>
+        </div>
         </CardContent>
       </Card>
 

@@ -71,7 +71,7 @@ export default function CustomersPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center gap-3 justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><Users className="h-6 w-6 text-blue-600" /> Customers</h1>
           <p className="text-sm text-slate-500">Manage customer accounts</p>
@@ -87,6 +87,7 @@ export default function CustomersPage() {
           </div>
         </CardHeader>
         <CardContent>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -125,11 +126,12 @@ export default function CustomersPage() {
               ))}
             </TableBody>
           </Table>
+        </div>
         </CardContent>
       </Card>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="w-full sm:max-w-2xl">
           <DialogHeader><DialogTitle>{editing ? 'Edit Customer' : 'New Customer'}</DialogTitle></DialogHeader>
           <div className="grid grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto pr-2">
             <div className="space-y-1.5">

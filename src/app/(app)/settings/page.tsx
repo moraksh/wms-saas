@@ -84,6 +84,7 @@ export default function SettingsPage() {
           </Button>
         </CardHeader>
         <CardContent>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -113,6 +114,7 @@ export default function SettingsPage() {
               ))}
             </TableBody>
           </Table>
+        </div>
         </CardContent>
       </Card>
 
@@ -125,6 +127,7 @@ export default function SettingsPage() {
           </Button>
         </CardHeader>
         <CardContent>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -156,6 +159,7 @@ export default function SettingsPage() {
               ))}
             </TableBody>
           </Table>
+        </div>
         </CardContent>
       </Card>
 
@@ -189,7 +193,7 @@ export default function SettingsPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>{editingSite ? 'Edit Site' : 'New Site'}</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Warehouse Code *</Label>
                 <Input value={siteForm.warehouse} onChange={e => setSiteForm(p => ({ ...p, warehouse: e.target.value }))} disabled={!!editingSite} placeholder="WH001" />
@@ -203,7 +207,7 @@ export default function SettingsPage() {
               <Label>Name *</Label>
               <Input value={siteForm.name} onChange={e => setSiteForm(p => ({ ...p, name: e.target.value }))} placeholder="Main Company" />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Address</Label>
                 <Input value={siteForm.address} onChange={e => setSiteForm(p => ({ ...p, address: e.target.value }))} />
